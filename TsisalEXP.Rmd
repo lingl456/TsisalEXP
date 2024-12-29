@@ -1,0 +1,502 @@
+---
+  title: "**Analysis of gene expression data from heterogeneous samples using TsisalEXP**"
+shorttitle: "TsisalEXP guide"
+author:
+  - name: LingPeng
+email: lingp6227@gmail.com
+- name:  Weiwei Zhang
+email: wwzhangly@163.com
+package: TsisalEXP
+abstract: >
+  This vignette introduces the usage
+R package TsisalEXP (TOols for Analysis of Tools)
+Heterogeneous organization). It is for
+Analysis of gene expression data
+Heterogeneous tissue
+They are a mixture of different cell types.
+TsisalEXP provides the ability to detect cell types
+Specific differential expression or
+Gene expression;
+And improved reference-free deconvolution
+Based on cross-cell type difference analysis.
+TsisalEXP is based on a rigorous statistical framework,
+
+vignette: >
+  %\VignetteIndexEntry{The TOAST User's Guide}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+output:
+  BiocStyle::html_document:
+    toc_float: FALSE
+---
+
+\tableofContents
+
+
+# Introduction
+
+In the study of complex tissue samples, 
+conventional collection and analysis methods may not always fulfill specific research needs or yield sufficiently detailed information. To bridge this gap,
+researchers can use some advanced techniques and methods to obtain more comprehensive data and information. 
+Notable among these are single-cell sequencing, 
+spatial transcriptome and multi-omics methods. 
+These cutting-edge tools provide deeper insights into the cellular and molecular intricacies of complex tissues, 
+enabling a richer analysis beyond the capabilities of traditional methods. 
+However, the inherent complexity of these samples has been computationally addressed through the development of a suite of methods known as expression deconvolution methods.
+
+1. How to estimate mixing proportions?  
+
+There are a number of existing methods 
+devoted to solve this question. These methods mainly can be categorized 
+to two groups: **reference-based** (require
+pure cell type profiles) and **reference-free**
+(does not require pure cell type profiles).
+It has been found that reference-based 
+deconvolution is more accurate and reliable
+than reference-free deconvolution. 
+However, the reference panels required 
+for reference-based deconvolution can be 
+difficult to obtain, thus reference-free method has wider application. 
+
+<!-- * As subsequence of the first question, we ask,
+how to construct reference panels from available 
+single-cell studies if reference-based deconvolution
+is used?   -->
+
+2. with available mixing proportions, 
+how to detect cell-type specific Gene expression?
+
+the first step utilizes the Akaike Information Criterion (AICs) to select the appropriate number of cell types (). 
+Following this, in the second step, and based on the estimated , 
+we utilize previously developed cross-cell-type differential analysis to select cell type-specific features. 
+Subsequently, our goal is to apply an algorithm to the benchmark dataset to identify simplexes with a tetrahedron (4-simplex) form;
+here, the angles of the simplex provide information on the proportions of cell types in the mixture and cell type-specific genes. 
+In the fourth step, 
+we plan to use an available reference panel to assign labels to the estimated anonymous cell types; 
+notably, even if this reference panel originates from a different population, 
+our approach aims to accurately assign labels to the estimated anonymous cell types through a data-driven method. 
+Finally, we generate a proportion matrix with cell type assignment labels. In the following sections,
+
+<!-- In future works, we plan to add more 
+components and expand our answers to the above questions.   -->
+
+
+# Installation and quick start
+
+## Install TsisalEXP
+To install this package, start R (version "3.6") and enter:
+
+installed.packages("TsisalEXP")
+
+## How to get help for TsisalEXP
+
+Any TsisalEXP questions should be posted
+to the GitHub Issue section of TsisalEXP 
+homepage at https://github.com/lingl456/TsisalEXP/issues.
+
+## Quick start on detecting cell type-specific differential signals
+
+Here we show the key steps for a cell 
+type-specific different analysis. This 
+code chunk assumes you have an expression
+or Gene expression matrix called `Y_raw`,
+a data frame of sample information called
+`design`, and a table of cellular composition
+(i.e. mixing proportions) 
+called `prop`. Instead of a data matrix, 
+`Y_raw` could also be a `SummarizedExperiment` object. 
+If the cellular composition
+is not available, the following sections 
+will discuss about how to obtain mixing 
+proportions using reference-free deconvolution 
+or reference-based deconvolution.
+
+
+# Example dataset
+
+TOAST provides one sample dataset.
+
+we generated pure tissue profiles and ratios based 
+on input parameters a mixture of GEO (reg. no. GSE11058) immune cell lines,
+resulting in a sample mixture. 
+This dataset contains gene expression profiles from four immune cells, 
+including Jurkat, IM-9, Raji, and THP-1, Furthermore, 
+four immune cell lines were cultured individually or in mixtures of different relative proportions and run on microarrays.
+```{r quick_start, eval = FALSE}
+sim_data <- getSampleMix(N_sample = Nsample, logpure, logpure.sd, noise_sd = 0.1)
+  Y.raw <- sim_data$obs.Y
+  trueProp = sim_data$trueProp
+  trueExp = sim_data$tmp
+  K = ncol(trueProp)
+```
+
+
+Check matrix including beta values for 
+3000 CpG by 100 samples.
+```{r checkData}
+dim(Y_raw) 
+Y_raw[1:4,1:4]
+```
+
+
+
+```
+# Estimate mixing proportions
+
+# Perform deconvolution using the csDeconv function
+# Input: Y.raw (gene expression matrix), K = 4 (number of cell types),
+# TotalIter = 5 (number of iterations), bound_negative = TRUE (prevent negative values)
+out.TsisalExp <- csDeconv(Y.raw, K = 4, TotalIter = 5, bound_negative = TRUE)
+
+# Apply the mysisal method to refine the estimated proportions
+# Use updated indices from csDeconv, number of cell types (K = 4), and select top 50 markers
+res.TsisalExp <- mysisal(Y.raw[out.TsisalExp$updatedInx, ], K = 4, topN = 50)
+
+# Normalize the estimated proportions so that each row sums to 1
+estProp_TsisalExp <- t(apply(res.TsisalExp$estProp, 1, function(x) x / sum(x)))
+
+# Handle cases where some columns (cell types) have all zeros
+idx <- apply(estProp_TsisalExp, 2, function(x) sum(x) == 0)
+estProp_TsisalExp[, idx] <- runif(ncol(estProp_TsisalExp), 0.0001, 0.0002)
+
+# Align the estimated proportions with the reference (trueProp) for consistency
+estProp_TsisalExp <- GetPropAligned(input = estProp_TsisalExp, reference = trueProp)
+
+# Calculate the mean correlation (MC_TsisalExp) between the estimated and true proportions
+MC_TsisalExp <- mean(diag(cor(estProp_TsisalExp, trueProp)))
+
+# Calculate the mean absolute error (MAE_TsisalExp) between the estimated and true proportions
+MAE_TsisalExp <- mean(colSums(abs(estProp_TsisalExp - trueProp)) / nrow(trueProp))
+
+# Output MC_TsisalExp and MAE_TsisalExp
+# - MC_TsisalExp measures the average correlation between estimated and true proportions.
+# - MAE_TsisalExp measures the average deviation of the estimated proportions from the true proportions.
+
+
+
+## Other deconvolution methods
+
+1. ## TOAST
+# Perform deconvolution using csDeconv
+out.TOAST <- csDeconv(Y.raw, K = 4, TotalIter = 30)
+
+# Normalize estimated proportions
+estProp_TOAST <- t(apply(out.TOAST$estProp, 1, function(x) x / sum(x)))
+
+# Handle columns with zero sums by replacing them with small random values
+Nsample <- nrow(trueProp)  # Assuming trueProp provides the sample count
+idx <- apply(estProp_TOAST, 2, function(x) sum(x) == 0)
+if (any(idx)) {
+  estProp_TOAST[, idx] <- matrix(runif(Nsample * sum(idx), 0.0001, 0.0002), nrow = Nsample, ncol = sum(idx))
+}
+
+# Align estimated proportions with reference proportions
+estProp_TOAST <- GetPropAligned(input = estProp_TOAST, reference = trueProp)
+
+# Calculate evaluation metrics
+MC_TOAST <- mean(diag(cor(estProp_TOAST, trueProp)))
+MAE_TOAST <- mean(colSums(abs(estProp_TOAST - trueProp)) / nrow(trueProp))
+
+# Display metrics
+cat("Mean Correlation (MC_TOAST):", MC_TOAST, "\n")
+cat("Mean Absolute Error (MAE_TOAST):", MAE_TOAST, "\n")
+
+```
+
+2. ## DSA implement by TsisalEXP
+# Estimate cell proportions using selected markers and the QP_LM method
+estProp_DSA <- EstimateWeight(
+  Y.raw,
+  res.TsisalExp$selMarker,
+  method = "QP_LM",
+  l = 0,
+  u = 1
+)$weight
+
+# Normalize estimated proportions
+estProp_DSA <- t(apply(estProp_DSA, 2, function(x) x / sum(x)))
+
+# Replace zero-sum columns with small random values
+Nsample <- nrow(trueProp)  # Assuming trueProp provides the sample count
+idx <- apply(estProp_DSA, 2, function(x) sum(x) == 0)
+if (any(idx)) {
+  estProp_DSA[, idx] <- matrix(runif(Nsample * sum(idx), 0.0001, 0.0002), nrow = Nsample, ncol = sum(idx))
+}
+
+# Align estimated proportions with reference proportions
+estProp_DSA <- GetPropAligned(input = estProp_DSA, reference = trueProp)
+
+# Calculate evaluation metrics
+MC_DSA <- mean(diag(cor(estProp_DSA, trueProp)))
+MAE_DSA <- mean(colSums(abs(estProp_DSA - trueProp)) / nrow(trueProp))
+
+# Display metrics
+cat("Mean Correlation (MC_DSA):", MC_DSA, "\n")
+cat("Mean Absolute Error (MAE_DSA):", MAE_DSA, "\n")
+
+```
+
+4. ## Linseed
+# Log-transform the raw data
+Y <- log2(Y.raw + 1)
+
+# Load Linseed library
+library(linseed)
+
+# Initialize LinseedObject with the top 10,000 genes
+lo <- LinseedObject$new(Y.raw, topGenes = 10000)
+
+# Perform analysis and filter the dataset
+lo$calculatePairwiseLinearity()
+lo$calculateSpearmanCorrelation()
+lo$calculateSignificanceLevel()
+lo$significancePlot(0.01)  # Plot genes below p-value threshold
+lo$filterDatasetByPval(0.01)
+
+# Set the number of cell types and project the data
+lo$setCellTypeNumber(4)
+lo$project("filtered")
+
+# Identify corners and deconvolve
+lo$smartSearchCorners(dataset = "filtered", error = "norm")
+lo$deconvolveByEndpoints()
+
+# Extract and normalize estimated proportions
+estProp_linseed <- t(lo$proportions)
+estProp_linseed <- t(apply(estProp_linseed, 1, function(x) x / sum(x)))
+
+# Replace zero-sum columns with small random values
+Nsample <- nrow(trueProp)
+idx <- apply(estProp_linseed, 2, function(x) sum(x) == 0)
+if (any(idx)) {
+  estProp_linseed[, idx] <- matrix(runif(Nsample * sum(idx), 0.0001, 0.0002), nrow = Nsample, ncol = sum(idx))
+}
+
+# Align estimated proportions with the reference
+estProp_linseed <- GetPropAligned(input = estProp_linseed, reference = trueProp)
+
+# Calculate evaluation metrics
+MC_Linseed <- mean(diag(cor(estProp_linseed, trueProp)))
+MAE_Linseed <- mean(colSums(abs(estProp_linseed - trueProp)) / nrow(trueProp))
+
+# Display metrics
+cat("Mean Correlation (MC_Linseed):", MC_Linseed, "\n")
+cat("Mean Absolute Error (MAE_Linseed):", MAE_Linseed, "\n")
+
+    ```
+    
+    ## In simulated Immune Cell Line Mixtures, TsisalEXP accurately calculates the number of cell types
+    
+    We initially assessed the accuracy of the Akaike Information Criterion (AIC) 
+    in ascertaining the number of cell types within mixed samples, 
+    employing Immune Cell Line Mixtures for this purpose. 
+    Following the outlined simulation procedure above, 
+    we chose K=4 as the number of cell types and subsequently produced 100 mixed samples. 
+    illustrates the AIC scores of Y for K ranging from 2 to 15.
+    Consistent with our expectations, 
+    we observed that the AIC value reaches its minimum when K equals 4, 
+    thereby confirming our selection of K=4 as the optimal number of cell types 
+    for these mixed samples.
+    
+    # Simulate data
+  sim_data <- getSampleMix(
+    N_sample = 30,
+    logpure = logpure,
+    logpure.sd = logpure.sd,
+    noise_sd = 0.1
+  )
+
+  # Extract components from simulated data
+  Y.raw <- sim_data$obs.Y        # Observed mixed data
+  trueProp <- sim_data$trueProp  # True proportions
+  trueExp <- sim_data$tmp        # True expression profiles
+  K <- ncol(trueProp)            # Number of cell types
+
+  # Cell-type number estimation using AIC
+  aic_result <- getCellNumber(Y.raw, possibleCellNumber = 2:15)
+
+  # Display results
+  cat("Optimal Cell-Type Number (bestK):", aic_result$bestK, "\n")
+  cat("AIC Values for Tested Cell Numbers:", aic_result$allAIC, "\n")
+  
+  
+    
+    
+    ### We evaluated each method's 
+       performance by computing the mean Pearson correlation coefficient 
+       (MPCC) and mean absolute error (MAE), comparing the estimated proportions 
+       to the actual proportions for five distinct cell types. Overall, 
+       we found that compared to these methods, 
+       the performance of TsisalEXP is comparable to that 
+       of reference-based deconvolution methods
+    
+       library(ggplot2)
+       library(tidyr)  # For the gather function
+       
+       # Example data for datasets
+       data1 <- data.frame(
+         TsisalExp = runif(10, 0.05, 0.15),
+         TOAST = runif(10, 0.1, 0.2),
+         Cibersort = runif(10, 0.08, 0.18),
+         DSA = runif(10, 0.06, 0.14),
+         Linseed = runif(10, 0.07, 0.16)
+       )
+       
+       data2 <- data.frame(
+         TsisalExp = runif(10, 0.05, 0.15),
+         TOAST = runif(10, 0.1, 0.2),
+         Cibersort = runif(10, 0.08, 0.18),
+         DSA = runif(10, 0.06, 0.14),
+         Linseed = runif(10, 0.07, 0.16)
+       )
+       
+       data3 <- data.frame(
+         TsisalExp = runif(10, 0.05, 0.15),
+         TOAST = runif(10, 0.1, 0.2),
+         Cibersort = runif(10, 0.08, 0.18),
+         DSA = runif(10, 0.06, 0.14),
+         Linseed = runif(10, 0.07, 0.16)
+       )
+       
+       data4 <- data.frame(
+         TsisalExp = runif(10, 0.05, 0.15),
+         TOAST = runif(10, 0.1, 0.2),
+         Cibersort = runif(10, 0.08, 0.18),
+         DSA = runif(10, 0.06, 0.14),
+         Linseed = runif(10, 0.07, 0.16)
+       )
+       
+       # Assign column names
+       column_names <- c("TsisalExp", "TOAST", "Cibersort", "DSA", "Linseed")
+       colnames(data1) <- column_names
+       colnames(data2) <- column_names
+       colnames(data3) <- column_names
+       colnames(data4) <- column_names
+       
+       # Combine the datasets
+       combined_data <- list(data1, data2, data3, data4)
+       
+       # Reshape the data for visualization
+       combined_data_long <- lapply(seq_along(combined_data), function(i) {
+         data_long <- gather(combined_data[[i]], key = "Method", value = "Value")
+         data_long$Dataset <- paste("Dataset", i)
+         return(data_long)
+       })
+       
+       # Merge all long-form datasets
+       combined_data_long <- do.call(rbind, combined_data_long)
+       
+       # Define colors
+       colors <- c("#9467bd", "#ff7f0e", "#1f77b4", "#2ca02c", "#d62728")
+       
+       # Create the boxplot
+       p <- ggplot(data = combined_data_long, aes(x = Dataset, y = Value, fill = Method)) +
+         geom_boxplot(width = 0.7) +
+         ylim(0, 0.2) +
+         scale_x_discrete(labels = c("30", "50", "100", "200")) +  # Customize x-axis labels
+         xlab("Sample size") +
+         ylab("Mean absolute error") +
+         scale_fill_manual(values = colors) +  # Custom color palette
+         theme_minimal() +  # Improve aesthetics
+         theme(legend.position = "right")  # Adjust legend position
+       
+       # Display the plot
+       print(p)
+       
+       # Save the plot (optional)
+       dev.off()
+       
+    
+    ### The performance of cell type label assignment is commonly affected by noise.
+       When we introduce different levels of noise into the reference panel, 
+       TsisalEXP is relatively robust to noise and maintains high accuracy in label assignment.
+    
+       # Load required libraries
+       rm(list = ls())
+       library(RColorBrewer)
+       
+       # Define colors
+       color <- c("#4DAF4A", "#313695", "#E41A1C", "#ff7f0e")
+       
+       # Output settings
+       pdf("cellFigS1.pdf", height = 4 * 2.5, width = 4 * 2.5)
+       par(mar = c(6.5, 4, 2, 1.1), mgp = c(2, 0.5, 0), mfrow = c(4, 4))
+       
+       # Main plotting function
+       plot_boxplot <- function(matrix_list, main_vec, y_label, file_path, col_names) {
+         # Load the data
+         load(file_path)
+         
+         # Update column names
+         colnames(matrix_list[[1]]) <- col_names
+         
+         # Calculate y-axis limits
+         y_min <- min(unlist(matrix_list))
+         y_max <- max(unlist(matrix_list))
+         
+         # First boxplot
+         boxplot(matrix_list[[1]], col = color, pch = 19, xlab = "", xaxt = "n",
+                 ylab = y_label, ylim = c(y_min, y_max), main = main_vec[1],
+                 frame.plot = F, outline = F, outpch = NA, axes = T, las = 1,
+                 cex.main = 1, cex.axis = 1, cex.lab = 1)
+         axis(1, labels = FALSE)
+         text(x = seq_along(col_names), y = par("usr")[3] - 0.05, srt = 60, adj = 1,
+              labels = col_names, xpd = TRUE, cex = 1)
+         
+         # Remaining boxplots
+         for (i in 2:4) {
+           boxplot(matrix_list[[i]], col = color, pch = 19, xaxt = "n", main = main_vec[i],
+                   ylim = c(y_min, y_max), frame.plot = F, outline = F, outpch = NA,
+                   axes = T, las = 1, cex.main = 1, cex.axis = 1, cex.lab = 1)
+           axis(1, labels = FALSE)
+           text(x = seq_along(col_names), y = par("usr")[3] - 0.05, srt = 60, adj = 1,
+                labels = col_names, xpd = TRUE, cex = 1)
+         }
+       }
+       
+       # Define main vectors and column names
+       main_vec <- c("refSD = 1*sd", "refSD = 5*sd", "refSD = 10*sd", "refSD = 20*sd")
+       
+       # Plot for "Mono"
+       col_names_mono <- c("Jurkat", "IM_9", "Raji", "THP_1")
+       plot_boxplot(
+         matrix_list = list(allrec[[1]], allrec[[2]], allrec[[3]], allrec[[4]]),
+         main_vec = main_vec,
+         y_label = "Probability (true label is Mono)",
+         file_path = "/Users/wwzhang/Documents/wwzhang/complete_deconvol/paper_plot/Fig3/cell4.RData",
+         col_names = col_names_mono
+       )
+       
+       # Plot for "BCell"
+       col_names_bcell <- c("Jurkat", "IM_9", "Raji", "THP_1")
+       plot_boxplot(
+         matrix_list = list(allrec[[1]], allrec[[2]], allrec[[3]], allrec[[4]]),
+         main_vec = main_vec,
+         y_label = "Probability (true label is BCell)",
+         file_path = "/Users/wwzhang/Documents/wwzhang/complete_deconvol/paper_plot/Fig3/cell1.RData",
+         col_names = col_names_bcell
+       )
+       
+       # Plot for "CD_T_NK"
+       col_names_cd_t_nk <- c("Jurkat", "IM_9", "Raji", "THP_1")
+       plot_boxplot(
+         matrix_list = list(allrec[[1]], allrec[[2]], allrec[[3]], allrec[[4]]),
+         main_vec = main_vec,
+         y_label = "Probability (true label is CD_T_NK)",
+         file_path = "/Users/wwzhang/Documents/wwzhang/complete_deconvol/paper_plot/Fig3/cell2.RData",
+         col_names = col_names_cd_t_nk
+       )
+       
+       # Plot for "Gran"
+       col_names_gran <- c("CD_T_NK", "BCell", "Mono", "Gran")
+       plot_boxplot(
+         matrix_list = list(allrec[[1]], allrec[[2]], allrec[[3]], allrec[[4]]),
+         main_vec = main_vec,
+         y_label = "Probability (true label is Gran)",
+         file_path = "/Users/wwzhang/Documents/wwzhang/complete_deconvol/paper_plot/Fig3/cell3.RData",
+         col_names = col_names_gran
+       )
+       
+       # Close the PDF device
+       dev.off()
+       
