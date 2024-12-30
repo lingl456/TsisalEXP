@@ -1,0 +1,22 @@
+Package: TsisalEXP
+Type: Package
+Title: Tools for the analysis of heterogeneous tissues
+Version: 0.0.0.9000
+Description: This package is devoted to analyzing gene expression data 1. accurately calculates the number of cell types 2. assign cell type labels to deconvolution estimates in the absence of a direct reference  3. Performance of TsisalEXP in cell type label assignment. 4.  reference-free deconvolution with prior knowledge.
+Author: LingPeng  and Weiwei Zhang 
+Maintainer: LingPeng <lingp6227@gmail.com>
+License: Apache-2.0
+Encoding: UTF-8
+LazyData: false
+Depends: R (>= 3.6), EpiDISH, limma, nnls, quadprog
+biocViews:  GeneExpression, 
+BugReports: https://github.com/ziyili20/TOAST/issues
+Imports: quadprog, matrixStats, Matrix, corpcor, dplyr,
+        nnls, DSA, csSAM, deconf,e1071,gtools
+Suggests: BiocStyle, knitr, rmarkdown, gplots, matrixStats,
+        Matrix
+VignetteBuilder: knitr
+NeedsCompilation: no
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.3
+
